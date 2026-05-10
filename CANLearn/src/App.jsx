@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import TikTokPanel from './videoContainer';
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
@@ -20,7 +21,7 @@ function App() {
       {/* Top Panel */}
       <div className="content-panel top-panel">
         {/* Placeholder Content */}
-        <h2>Upper Content Area</h2>
+        <TikTokPanel />
       </div>
 
       {/* Floating Navigation Bar */}
