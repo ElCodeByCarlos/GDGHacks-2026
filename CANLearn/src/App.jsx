@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import TikTokPanel from './videoContainer';
+import QuizPanel from './QuizPanel';
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
@@ -43,7 +44,7 @@ function App() {
       {/* Bottom Panel */}
       <div className="content-panel bottom-panel">
         {/* Placeholder Content */}
-        <h2>Lower Content Area</h2>
+        <QuizPanel />
       </div>
     </div>
   );
