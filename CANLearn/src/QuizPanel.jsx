@@ -1,71 +1,90 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+const genAI = new GoogleGenerativeAI("YOUR_API_KEY_HERE");
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
 const QuizPanel = () => {
   const [question, setQuestion] = useState(null);
-  const [shuffledAnswers, setShuffledAnswers] = useState([]); // Store shuffled answers separately
-  const [sessionToken, setSessionToken] = useState('');
-  const [category, setCategory] = useState(19);
+  const [shuffledAnswers, setShuffledAnswers] = useState([]);
+  const [category, setCategory] = useState("19");
+  const [customTopic, setCustomTopic] = useState("");
   const [loading, setLoading] = useState(false);
-  
-  // Use a Ref to track the last time we called the API (Rate Limit Protection)
-  const lastFetchTime = useRef(0);
+  const [sessionToken, setSessionToken] = useState('');
 
+  // 1. FIXED HELPERS (Corrected closing braces)
   const decodeHTML = (html) => {
     const txt = document.createElement('textarea');
     txt.innerHTML = html;
     return txt.value;
   };
 
+  // 2. TOKEN FETCH (Runs once on mount)
   useEffect(() => {
     const getToken = async () => {
       try {
         const res = await axios.get('https://opentdb.com/api_token.php?command=request');
         setSessionToken(res.data.token);
-      } catch (err) { console.error("Token Error", err); }
+      } catch (err) {
+        console.error("Token Error:", err);
+      }
     };
     getToken();
   }, []);
 
-  const fetchQuestion = useCallback(async () => {
-    // 5-second Rate Limit Check
-    const now = Date.now();
-    if (now - lastFetchTime.current < 5000) {
-      console.warn("Wait a few seconds before requesting a new question!");
-      return;
-    }
-
-    if (!sessionToken) return;
+  // 3. GEMINI FETCH
+  const fetchGeminiQuestion = async () => {
+    if (!customTopic) return;
     setLoading(true);
-    lastFetchTime.current = Date.now();
-
     try {
-      const url = `https://opentdb.com/api.php?amount=1&category=${category}&token=${sessionToken}`;
-      const res = await axios.get(url);
+      const prompt = `Generate one multiple-choice quiz question about ${customTopic}. 
+      Provide 1 correct answer and 3 incorrect answers. 
+      Return ONLY a raw JSON object. 
+      Structure: {"question": "string", "correct_answer": "string", "incorrect_answers": ["string", "string", "string"]}`;
 
-      if (res.data.response_code === 0) {
-        const q = res.data.results[0];
-        setQuestion(q);
-        // Shuffle answers ONCE when the question arrives
-        setShuffledAnswers(
-          [...q.incorrect_answers, q.correct_answer].sort(() => Math.random() - 0.5)
-        );
-      } else if (res.data.response_code === 5) {
-        alert("Rate limit hit! Wait 5 seconds.");
-      } else if (res.data.response_code === 4) {
-        alert("Category exhausted! Reloading...");
-        window.location.reload();
-      }
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = await response.text();
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const cleanText = jsonMatch ? jsonMatch[0] : text;
+
+      const cleanJson = JSON.parse(cleanText);
+      setQuestion(cleanJson);
+      setShuffledAnswers([...cleanJson.incorrect_answers, cleanJson.correct_answer].sort(() => Math.random() - 0.5));
     } catch (err) {
-      console.error("Quiz Fetch Error:", err);
+      console.error("Gemini Error:", err);
     } finally {
       setLoading(false);
     }
+  };
+
+  // 4. STANDARD FETCH
+  const fetchStandardQuestion = useCallback(async () => {
+    if (!sessionToken || category === "custom") return;
+    setLoading(true);
+    try {
+      const res = await axios.get(`https://opentdb.com/api.php?amount=1&category=${category}&token=${sessionToken}`);
+      if (res.data.response_code === 0) {
+        const q = res.data.results[0];
+        setQuestion(q);
+        setShuffledAnswers([...q.incorrect_answers, q.correct_answer].sort(() => Math.random() - 0.5));
+      }
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   }, [category, sessionToken]);
 
+  // 5. THE TRIGGER (This makes standard topics load automatically)
   useEffect(() => {
-    if (sessionToken) fetchQuestion();
-  }, [category, sessionToken, fetchQuestion]);
+    if (sessionToken && category !== "custom") {
+      fetchStandardQuestion();
+    }
+  }, [category, sessionToken, fetchStandardQuestion]);
+
+  const handleNext = () => {
+    if (category === "custom") fetchGeminiQuestion();
+    else fetchStandardQuestion();
+  };
 
   return (
     <div className="quiz-container">
@@ -74,32 +93,40 @@ const QuizPanel = () => {
           <option value="19">Mathematics</option>
           <option value="18">Computers</option>
           <option value="23">History</option>
-          <option value="9">General Knowledge</option>
+          <option value="custom">Custom Topic</option>
         </select>
+
+        {category === "custom" && (
+          <div className="custom-input-group">
+            <input 
+              type="text" 
+              placeholder="Enter topic..." 
+              value={customTopic}
+              onChange={(e) => setCustomTopic(e.target.value)}
+            />
+            <button onClick={fetchGeminiQuestion} disabled={loading}>
+                {loading ? "Generating..." : "Start AI Quiz"}
+            </button>
+          </div>
+        )}
       </div>
 
-      {loading ? (
-        <p>Loading Question...</p>
-      ) : question ? (
+      {loading ? <p>Loading...</p> : question && (
         <div className="question-card">
           <h3>{decodeHTML(question.question)}</h3>
           <div className="options-grid">
             {shuffledAnswers.map((opt, i) => (
               <button key={i} className="quiz-opt" onClick={() => {
-                if (opt === question.correct_answer) {
-                  alert("Correct! 🎉");
-                  fetchQuestion(); // Load next
-                } else {
-                  alert(`Wrong! The answer was: ${decodeHTML(question.correct_answer)}`);
-                  fetchQuestion(); // Load next
-                }
+                const isCorrect = opt === question.correct_answer;
+                alert(isCorrect ? "Correct!" : "Wrong! It was: " + decodeHTML(question.correct_answer));
+                handleNext();
               }}>
                 {decodeHTML(opt)}
               </button>
             ))}
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 };
